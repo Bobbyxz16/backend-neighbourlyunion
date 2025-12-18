@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: neighborhelp-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-Futbol2005@}  # Usa variable de entorno
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-neighborlyhelp_database}
+      MYSQL_USER: ${MYSQL_USER:-bobby}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-Futbol2005@}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-Futbol2005@}"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  springboot-app:
+    build: .
+    container_name: neighborhelp-app
+    ports:
+      - "8081:8080"
+    environment:
+      # DATABASE CONFIGURATION
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-db:3306/${MYSQL_DATABASE:-neighborlyhelp_database}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-bobby}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-Futbol2005@}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+
+      # JPA/HIBERNATE
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "false"
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
+      SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL: "true"
+
+      # JWT SECURITY (USAR VARIABLES!)
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: "86400000"
+
+      # APP CONFIG
+      SERVER_PORT: "8080"
+      SPRING_PROFILES_ACTIVE: docker,dev
+
+      # LOGGING
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_EXAMPLE_NEIGHBORHELP: DEBUG
+      LOGGING_LEVEL_ORG_HIBERNATE_SQL: DEBUG
+      LOGGING_LEVEL_ORG_HIBERNATE_TYPE_DESCRIPTOR_SQL_BASICBINDER: TRACE
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: DEBUG
+
+      # ACTUATOR
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+
+      # CORS
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+
+      # OAUTH2 (¡CORREGIDO!)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+
+      # EMAIL/RESEND (USAR VARIABLE!)
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-no-reply@neighbourlyunion.com}
+
+      # ENCRYPTION (USAR VARIABLES!)
+      APP_ENCRYPTION_SECRET: ${APP_ENCRYPTION_SECRET}
+      APP_ENCRYPTION_SALT: ${APP_ENCRYPTION_SALT}
+
+      # UPLOAD
+      UPLOAD_PATH: /app/uploads
+
+      # OPEN IN VIEW
+      SPRING_JPA_OPEN_IN_VIEW: "false"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+
+networks:
+  app-network:
+    driver: bridge
