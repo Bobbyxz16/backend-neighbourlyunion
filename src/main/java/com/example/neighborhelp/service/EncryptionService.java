@@ -18,8 +18,8 @@ public class EncryptionService {
 
     // Constructor que recibe las claves desde application.properties
     public EncryptionService(
-            @Value("${app.encryption.secret}") String secret,
-            @Value("${app.encryption.salt}") String salt) {
+            @Value("${APP_ENCRYPTION_SECRET}") String secret,
+            @Value("${APP_ENCRYPTION_SALT}") String salt) {
 
         this.secretKey = deriveKey(secret, salt);
     }
