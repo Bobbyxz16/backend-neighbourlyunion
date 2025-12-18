@@ -1,324 +1,332 @@
 package com.example.neighborhelp.controller;
 
 import com.example.neighborhelp.dto.*;
-import com.example.neighborhelp.entity.RefreshToken;
-import com.example.neighborhelp.entity.User;
-import com.example.neighborhelp.repository.UserRepository;
+import com.example.neighborhelp.entity.VerificationCode;
 import com.example.neighborhelp.exception.InvalidTokenException;
-import com.example.neighborhelp.exception.ResourceNotFoundException;
-import com.example.neighborhelp.security.TokenResponse;
+import com.example.neighborhelp.dto.TokenResponseRequest;
 import com.example.neighborhelp.service.AuthService;
-import com.example.neighborhelp.service.FirebaseService;
-import com.google.api.core.ApiFuture;
-import com.google.cloud.firestore.DocumentReference;
-import com.google.firebase.auth.ActionCodeSettings;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthException;
-import com.example.neighborhelp.service.UserService;
-import com.example.neighborhelp.security.JwtService;
-import com.example.neighborhelp.service.RefreshTokenService;
-import com.google.firebase.auth.UserRecord;
-import com.example.neighborhelp.security.EmailService;
+import com.example.neighborhelp.service.VerificationService;
+import javax.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.view.RedirectView;
-import javax.validation.Valid;
-import com.google.cloud.firestore.Firestore;
-import com.google.firebase.cloud.FirestoreClient;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
-@RestController
-@RequestMapping("/api/auth")
+/**
+ * Authentication Controller - Handles all authentication-related operations
+ * including registration, email verification, login, and password reset.
+ *
+ * This controller provides the main authentication API endpoints for the NeighborHelp application.
+ *
+ * @author NeighborHelp Team
+ */
+@RestController  // Marks this class as a Spring REST Controller
+@RequestMapping("/api/auth")  // Base path for all endpoints in this controller
+@RequiredArgsConstructor  // Lombok annotation to generate constructor with required fields
 public class AuthController {
 
-    private final AuthService authService;
-    private final UserRepository userRepository;
-    private final JwtService jwtService;
-    private final RefreshTokenService refreshTokenService;
-    private final UserService userService;
-    private final FirebaseService  firebaseService;
-    private final EmailService emailService;
+    // Service dependencies injected via constructor
+    private final AuthService authService;  // Handles authentication business logic
+    private final VerificationService verificationService;  // Handles email verification codes
 
-
-    public AuthController(AuthService authService, UserRepository userRepository,
-                          JwtService jwtService, RefreshTokenService refreshTokenService,
-                          UserService userService, FirebaseService firebaseService, EmailService emailService) {
-        this.authService = authService;
-        this.userRepository = userRepository;
-        this.jwtService = jwtService;
-        this.refreshTokenService = refreshTokenService;
-        this.userService = userService;
-        this.firebaseService = firebaseService;
-        this.emailService = emailService;
-    }
-
+    /**
+     * POST /api/auth/register
+     * Registers a new user and sends verification code via email
+     *
+     * Flow:
+     * 1. Validates registration request
+     * 2. Creates user account (unverified)
+     * 3. Sends 6-digit verification code to user's email
+     * 4. Returns user details without sensitive information
+     *
+     * @param request UpdatedRegisterRequest containing user registration data
+     * @return ResponseEntity with success message and user details (HTTP 201 Created)
+     */
     @PostMapping(
             value = "/register",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<UserResponse> register(@Valid @RequestBody UpdatedRegisterRequest request) throws FirebaseAuthException {
-        UserResponse userResponse = authService.register(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(userResponse);
+    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        // Register user and get response without sensitive data
+        UserResponseRequest userResponse = authService.register(request);
+
+        // Build response object
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Registration successful. Please check your email for the verification code.");
+        response.put("user", userResponse);
+        response.put("email", userResponse.getEmail());
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    /**
+     * POST /api/auth/verify
+     * Verifies user's email using the 6-digit verification code
+     *
+     * Flow:
+     * 1. Validates verification code for the given email
+     * 2. Marks user as verified if code is valid
+     * 3. Allows user to login after successful verification
+     *
+     * @param request VerifyEmailRequest containing email and verification code
+     * @return ResponseEntity with success or error message
+     */
+    @PostMapping(
+            value = "/verify",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<MessageResponseRequest> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        try {
+            // Verify the 6-digit code for email verification type
+            verificationService.verifyCode(
+                    request.getEmail(),
+                    request.getCode(),
+                    VerificationCode.VerificationType.EMAIL_VERIFICATION
+            );
+
+            return ResponseEntity.ok(
+                    new MessageResponseRequest("Email verified successfully. You can now log in.")
+            );
+
+        } catch (InvalidTokenException e) {
+            // Return 400 Bad Request for invalid verification codes
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new MessageResponseRequest(e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/auth/resend
+     * Resends verification code to user's email
+     *
+     * Useful when:
+     * - User didn't receive the first code
+     * - Code expired
+     * - User requests a new code
+     *
+     * @param request ResendCodeRequest containing user's email
+     * @return ResponseEntity with success or error message
+     */
+    @PostMapping(
+            value = "/resend",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<MessageResponseRequest> resendVerificationCode(@Valid @RequestBody ResendCodeRequest request) {
+        try {
+            // Generate and send new verification code
+            verificationService.resendVerificationCode(
+                    request.getEmail(),
+                    VerificationCode.VerificationType.EMAIL_VERIFICATION
+            );
+
+            return ResponseEntity.ok(
+                    new MessageResponseRequest("Verification code resent. Please check your email.")
+            );
+
+        } catch (IllegalStateException e) {
+            // Return 400 Bad Request for issues like email not found
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new MessageResponseRequest(e.getMessage()));
+        }
+    }
+
+    /**
+     * POST /api/auth/login
+     * Authenticates user and returns JWT tokens
+     *
+     * Requirements:
+     * - User must have verified email
+     * - Valid email and password
+     *
+     * @param request LoginRequest containing email and password
+     * @return ResponseEntity with JWT tokens or verification error
+     */
     @PostMapping(
             value = "/login",
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request){
-        return ResponseEntity.ok(authService.login(request));
-    }
-
-    @GetMapping("/verify")
-    public RedirectView verifyUser(@RequestParam String token) {
+    public ResponseEntity<Object> login(@Valid @RequestBody LoginRequest request) {
         try {
-            User user = userRepository.findByVerificationToken(token)
-                    .orElseThrow(() -> new ResourceNotFoundException("Invalid verification token"));
+            // Attempt login - will fail if email not verified
+            TokenResponseRequest tokenResponse = authService.login(request);
+            return ResponseEntity.ok(tokenResponse);
 
-            // Set user as enabled and verified
-            user.setEnabled(true);
-            user.setVerified(true);
-            user.setVerificationToken(null); // Clear the token after successful verification
-            userRepository.save(user);
-
-            // Redirect to your Vercel frontend
-            return new RedirectView("https://neighborlyunion.com/verify-success");
-
-        } catch (ResourceNotFoundException e) {
-            // Redirect to an error page if token is invalid
-            return new RedirectView("https://neighborlyunion.com/verify-error?error=invalid-token");
-        } catch (Exception e) {
-            // Redirect to an error page for any other exceptions
-            return new RedirectView("https://neighborlyunion.com/verify-error?error=verification-failed");
+        } catch (DisabledException e) {
+            // User exists but email is not verified
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getMessage());
+            errorResponse.put("verified", false);
+            errorResponse.put("email", request.getEmail());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
         }
     }
 
-    // Alternative endpoint that returns JSON response (useful for API testing)
-    @GetMapping("/verify-status")
-    public ResponseEntity<MessageResponse> verifyUserStatus(@RequestParam String token) {
+    /**
+     * POST /api/auth/refresh-token
+     * Refreshes expired access token using valid refresh token
+     *
+     * Security:
+     * - Refresh tokens have longer expiration
+     * - Allows users to stay authenticated without re-login
+     *
+     * @param request RefreshTokenRequest containing refresh token
+     * @return ResponseEntity with new JWT tokens or error
+     */
+    @PostMapping(
+            value = "/refresh-token",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<Object> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         try {
-            User user = userRepository.findByVerificationToken(token)
-                    .orElseThrow(() -> new ResourceNotFoundException("Invalid verification token"));
+            // Generate new access token using refresh token
+            TokenResponseRequest tokenResponse = authService.refreshToken(request.getRefreshToken());
+            return ResponseEntity.ok(tokenResponse);
 
-            user.setEnabled(true);
-            user.setVerified(true);
-            user.setVerificationToken(null);
-            userRepository.save(user);
+        } catch (InvalidTokenException e) {
+            // Return 401 Unauthorized for invalid refresh tokens
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+        }
+    }
 
-            return ResponseEntity.ok(new MessageResponse("Account verified successfully. You can now log in."));
+    /**
+     * POST /api/auth/forgot-password
+     * Initiates password reset process by sending reset code
+     *
+     * Security Note:
+     * - Always returns success message regardless of email existence
+     * - Prevents email enumeration attacks
+     *
+     * @param request ForgotPasswordRequest containing user's email
+     * @return ResponseEntity with generic success message
+     */
+    @PostMapping(
+            value = "/forgot-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<MessageResponseRequest> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        try {
+            // Send password reset code (6-digit)
+            verificationService.resendVerificationCode(
+                    request.getEmail(),
+                    VerificationCode.VerificationType.PASSWORD_RESET
+            );
 
-        } catch (ResourceNotFoundException e) {
+            return ResponseEntity.ok(
+                    new MessageResponseRequest("Password reset code sent. Please check your email.")
+            );
+
+        } catch (Exception e) {
+            // Security: Never reveal if email exists or not
+            return ResponseEntity.ok(
+                    new MessageResponseRequest("If the email exists, a password reset code has been sent.")
+            );
+        }
+    }
+
+    /**
+     * POST /api/auth/verify-reset-code
+     * Verifies password reset code before allowing password change
+     *
+     * @param request VerifyEmailRequest containing email and reset code
+     * @return ResponseEntity with success or error message
+     */
+    @PostMapping(
+            value = "/verify-reset-code",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<MessageResponseRequest> verifyResetCode(@Valid @RequestBody VerifyEmailRequest request) {
+        try {
+            // Verify the 6-digit password reset code
+            verificationService.verifyCode(
+                    request.getEmail(),
+                    request.getCode(),
+                    VerificationCode.VerificationType.PASSWORD_RESET
+            );
+
+            return ResponseEntity.ok(
+                    new MessageResponseRequest("Code verified. You can now reset your password.")
+            );
+
+        } catch (InvalidTokenException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new MessageResponse("Invalid verification token"));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new MessageResponse("Verification failed. Please try again."));
-        }
-    }
-
-    @PostMapping("/refresh-token")
-    public ResponseEntity<TokenResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) throws InvalidTokenException {
-        return ResponseEntity.ok(authService.refreshToken(request.getRefreshToken()));
-    }
-
-    @PostMapping("/forgot-password")
-    public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) throws IOException {
-        authService.initiatePasswordReset(request.getEmail());
-        return ResponseEntity.ok(new MessageResponse("An email with instructions has been sent"));
-    }
-
-    @PostMapping("/reset-password")
-    public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) throws InvalidTokenException {
-        authService.resetPassword(request.getToken(), request.getNewPassword());
-        return ResponseEntity.ok(new MessageResponse("Password reset successful"));
-    }
-
-
-
-    @PostMapping("/firebase-register")
-    public ResponseEntity<Map<String, Object>> firebaseRegister(@Valid @RequestBody UpdatedRegisterRequest request) {
-        try {
-            // 1. Create Firebase user
-            UserRecord firebaseUser = firebaseService.createFirebaseUser(request.getEmail(), request.getPassword());
-
-            // 2. Configure action code settings with your callback URL
-            ActionCodeSettings actionCodeSettings = ActionCodeSettings.builder()
-                    .setUrl("https://api.neighborlyunion.com/auth/firebase-verify-callback")
-                    .setHandleCodeInApp(false) // Will redirect to your URL
-                    .build();
-
-            // 3. Generate verification link with settings
-            String verificationLink = FirebaseAuth.getInstance()
-                    .generateEmailVerificationLink(request.getEmail(), actionCodeSettings);
-
-            // 4. Send email
-            Firestore db = FirestoreClient.getFirestore();
-            Map<String, Object> emailDoc = new HashMap<>();
-            emailDoc.put("to", request.getEmail());
-
-            Map<String, Object> message = new HashMap<>();
-            message.put("subject", "Verify your NeighborHelp account");
-            message.put("html", emailService.buildVerificationEmailHtml(verificationLink));
-
-            emailDoc.put("message", message);
-            ApiFuture<DocumentReference> addedDocRef = db.collection("mail").add(emailDoc);
-            DocumentReference docRef = addedDocRef.get();
-
-            // 5. Save user to database
-            User user = new User();
-            user.setUsername(request.getUsername());
-            user.setEmail(request.getEmail());
-            user.setFirebaseUid(firebaseUser.getUid());
-            user.setAuthProvider("FIREBASE");
-            user.setRole(request.getRole());
-            user.setType(request.getType());
-            user.setOrganizationName(request.getOrganizationName());
-            user.setDescription(request.getDescription());
-            user.setWebsite(request.getWebsite());
-            user.setEnabled(false);
-            user.setVerified(false);
-            User savedUser = userRepository.save(user);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "User registered. Check email for verification.");
-            response.put("userId", savedUser.getId());
-            response.put("email", savedUser.getEmail());
-
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "Registration failed: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+                    .body(new MessageResponseRequest(e.getMessage()));
         }
     }
 
     /**
-     * Verify email endpoint - handles your custom verification token
+     * POST /api/auth/reset-password
+     * Resets user password after code verification
+     *
+     * Flow:
+     * 1. Verify reset code is valid
+     * 2. Update user password with new one
+     * 3. Invalidate used reset code
+     *
+     * @param request ResetPasswordRequest containing email, code, and new password
+     * @return ResponseEntity with success or error message
      */
-    @GetMapping("/verify-email")
-    public RedirectView verifyEmail(@RequestParam String token) {
-        try {
-            // 1. Find user by your verification token
-            User user = userRepository.findByVerificationToken(token)
-                    .orElseThrow(() -> new ResourceNotFoundException("Invalid or expired verification token"));
+    @PostMapping(
+            value = "/reset-password",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<MessageResponseRequest> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
 
-            // 2. Update YOUR database
-            user.setEnabled(true);
-            user.setVerified(true);
-            user.setVerificationToken(null); // Clear token after use
-            userRepository.save(user);
+        try{
+        // Then reset the password
+        authService.resetPasswordWithCode(request.getEmail(), request.getNewPassword());
 
-            // 3. Also mark as verified in Firebase
-            UserRecord.UpdateRequest updateRequest = new UserRecord.UpdateRequest(user.getFirebaseUid())
-                    .setEmailVerified(true);
-            FirebaseAuth.getInstance().updateUser(updateRequest);
+        return ResponseEntity.ok(
+                new MessageResponseRequest("Password reset successful. You can now log in with your new password.")
+        );
+        } catch (Exception e){
 
-            System.out.println("User verified: " + user.getEmail());
-
-            // 4. Redirect to success page
-            return new RedirectView("https://neighborlyunion.com/verify-success");
-
-        } catch (ResourceNotFoundException e) {
-            System.err.println("Verification failed: " + e.getMessage());
-            return new RedirectView("https://neighborlyunion.com/verify-error?error=invalid-token");
-        } catch (FirebaseAuthException e) {
-            System.err.println("Firebase update failed: " + e.getMessage());
-            // Still redirect to success since database was updated
-            return new RedirectView("https://neighborlyunion.com/verify-success");
-        } catch (Exception e) {
-            e.printStackTrace();
-            return new RedirectView("https://neighborlyunion.com/verify-error?error=verification-failed");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponseRequest(e.getMessage()));
         }
-    }
 
-    @PostMapping("/firebase-login")
-    public ResponseEntity<Map<String, Object>> firebaseLogin(@RequestBody Map<String, String> request) {
-        try {
-            String email = request.get("email");
 
-            // Get Firebase user - Firebase has already verified them when they clicked the link
-            UserRecord firebaseUser = firebaseService.getFirebaseUser(email);
-
-            if (!firebaseUser.isEmailVerified()) {
-                Map<String, Object> error = new HashMap<>();
-                error.put("error", "Email not verified. Please check your email and click the verification link.");
-                error.put("emailVerified", false);
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
-            }
-
-            // User is verified in Firebase, update your database
-            User user = userRepository.findByFirebaseUid(firebaseUser.getUid())
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-            // Sync verification status from Firebase to your database
-            if (firebaseUser.isEmailVerified() && !user.getVerified()) {
-                user.setEnabled(true);
-                user.setVerified(true);
-                userRepository.save(user);
-                System.out.println("User database updated - verified and enabled: " + email);
-            }
-
-            // Generate tokens
-            String customToken = firebaseService.createCustomToken(firebaseUser.getUid());
-            String accessToken = jwtService.generateToken(user);
-            RefreshToken refreshToken = refreshTokenService.createRefreshToken(user.getId());
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Login successful");
-            response.put("firebaseCustomToken", customToken);
-            response.put("accessToken", accessToken);
-            response.put("refreshToken", refreshToken.getToken());
-            response.put("tokenType", "Bearer");
-            response.put("expiresIn", jwtService.getExpirationTime());
-            response.put("emailVerified", true);
-            response.put("user", userService.mapToUserResponse(user));
-
-            return ResponseEntity.ok(response);
-
-        } catch (FirebaseAuthException e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "Firebase authentication failed: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
-        } catch (Exception e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "Login failed: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
-        }
     }
 
     /**
-     * Check verification status
+     * GET /api/auth/check-verification-status
+     * Checks if a user's email is verified
+     *
+     * TODO: Implement proper service method in UserService
+     *
+     * @param email User's email address as request parameter
+     * @return ResponseEntity with verification status or error
      */
-    @PostMapping("/check-verification")
-    public ResponseEntity<Map<String, Object>> checkVerification(@RequestBody Map<String, String> request) {
+    @GetMapping(
+            value = "/check-verification-status",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<Map<String, Object>> checkVerificationStatus(@RequestParam String email) {
         try {
-            String email = request.get("email");
+            // Placeholder implementation - needs proper service method
+            Map<String, Object> status = new HashMap<>();
+            status.put("email", email);
+            status.put("message", "Check implementation in UserService");
 
-            User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+            return ResponseEntity.ok(status);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("email", user.getEmail());
-            response.put("verified", user.getVerified());
-            response.put("enabled", user.getEnabled());
-            response.put("authProvider", user.getAuthProvider());
-
-            return ResponseEntity.ok(response);
-
-        } catch (ResourceNotFoundException e) {
+        } catch (Exception e) {
             Map<String, Object> error = new HashMap<>();
-            error.put("error", "User not found: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+            error.put("error", "Unable to check verification status");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
         }
     }
 }

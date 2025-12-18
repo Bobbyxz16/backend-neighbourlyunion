@@ -34,3 +34,4 @@ primary_region = 'lhr'
 [env]
   SPRING_PROFILES_ACTIVE = "prod"
   JAVA_OPTS = "-Xmx512m -Xms256m"
+

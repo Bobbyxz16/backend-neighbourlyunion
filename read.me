@@ -1,0 +1,105 @@
+# NeighborHelp
+
+![Logo o Imagen del Proyecto](ruta/a/imagen.png) <!-- Agrega una imagen si tienes una -->
+
+## Descripción
+
+NeighborHelp es una aplicación web desarrollada en Java con Spring Boot, diseñada para facilitar la ayuda mutua entre vecinos. Permite a los usuarios registrarse, enviar mensajes, calificar servicios, reportar incidencias y más. Incluye características como autenticación segura, integración con Firebase para notificaciones y almacenamiento, caching para rendimiento, y servicios de moderación y analíticas.
+
+El proyecto utiliza:
+- **Lenguaje principal**: Java (SDK 21-preview)
+- **Gestor de dependencias**: Maven
+- **Framework**: Spring Boot
+- **Otras tecnologías**: Firebase, caching (posiblemente Redis o similar), seguridad con JWT o similar, y servicios para usuarios, mensajes, reportes, etc.
+
+## Requisitos Previos
+
+- Java 21 o superior
+- Maven 3.x
+- Node.js y npm (para cualquier dependencia frontend en `node_modules`)
+- Docker (opcional, para contenedores con `docker-compose.yml`)
+- Cuenta de Firebase (para `firebase-config.json`)
+
+## Instalación
+
+1. Clona el repositorio:
+   ```
+   git clone https://github.com/tu-usuario/neighborhelp.git
+   cd NeighborHelp
+   ```
+
+2. Instala las dependencias de Maven:
+   ```
+   mvn clean install
+   ```
+
+3. Configura las variables de entorno en `.env` (ejemplo: claves de Firebase, base de datos, etc.).
+
+4. Si usas Node.js para el frontend:
+   ```
+   npm install
+   ```
+
+5. Configura la base de datos y otros servicios en `src/main/resources/application.properties`.
+
+## Ejecución
+
+- **Modo de desarrollo**:
+  ```
+  mvn spring-boot:run
+  ```
+  La aplicación se ejecutará en `http://localhost:8080` (o el puerto configurado).
+
+- **Con Docker**:
+  ```
+  docker-compose up -d
+  ```
+
+- **Pruebas**:
+  ```
+  mvn test
+  ```
+
+## Estructura del Proyecto
+
+- **`src/main/java/com.example.neighborhelp`**: Código fuente principal.
+  - `config/`: Configuraciones (caché, Firebase, seguridad, etc.).
+  - `controller/`: Controladores REST.
+  - `dto/`: Objetos de transferencia de datos.
+  - `entity/`: Entidades de base de datos.
+  - `exception/`: Manejo de excepciones.
+  - `repository/`: Repositorios para acceso a datos.
+  - `security/`: Configuración de seguridad.
+  - `service/`: Lógica de negocio (servicios para usuarios, mensajes, reportes, etc.).
+- **`src/main/resources`**: Recursos estáticos, plantillas y propiedades.
+- **`src/test`**: Pruebas unitarias e integraciones (en Java y Scala).
+- **`target/`**: Archivos compilados (no versionar).
+- **`uploads/`**: Directorio para almacenamiento de archivos.
+- Archivos de configuración: `pom.xml` (Maven), `docker-compose.yml`, `Dockerfile`, etc.
+
+## Uso
+
+- **Endpoints principales** (ejemplos, ajusta según tus controladores):
+  - `POST /auth/register`: Registrar un usuario.
+  - `GET /users`: Listar usuarios (con autenticación).
+  - `POST /messages`: Enviar un mensaje.
+
+Consulta la documentación de API (puedes generar con Swagger si está integrado) o explora los servicios en `service/`.
+
+## Contribución
+
+1. Haz un fork del repositorio.
+2. Crea una rama: `git checkout -b feature/nueva-funcionalidad`.
+3. Commitea tus cambios: `git commit -m 'Agrega nueva funcionalidad'`.
+4. Push a la rama: `git push origin feature/nueva-funcionalidad`.
+5. Abre un Pull Request.
+
+## Licencia
+
+Este proyecto está bajo la licencia MIT. Ver el archivo [LICENSE](LICENSE) para más detalles.
+
+## Contacto
+
+Para preguntas o sugerencias, contacta a [tu-email@ejemplo.com].
+
+Última actualización: 2025-12-05

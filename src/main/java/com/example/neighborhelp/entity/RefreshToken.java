@@ -19,7 +19,8 @@ public class RefreshToken {
     private LocalDateTime expiryDate;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", foreignKey = @ForeignKey(name = "FK_refresh_tokens_user",
+            foreignKeyDefinition = "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"))
     private User user;
 
     public boolean isExpired() {

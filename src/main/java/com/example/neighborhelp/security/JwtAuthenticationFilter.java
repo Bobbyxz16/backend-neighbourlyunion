@@ -1,12 +1,12 @@
 package com.example.neighborhelp.security;
 
-import com.example.neighborhelp.entity.User;
-import com.example.neighborhelp.repository.UserRepository; // Asume que tienes esto (JPA repo)
-import io.jsonwebtoken.Claims;
+import com.example.neighborhelp.repository.UserRepository;
+import com.example.neighborhelp.security.JwtService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -16,68 +16,159 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Base64;
 
-@Component  // Spring lo detecta automáticamente
+/**
+ * JWT Authentication Filter for Spring Security.
+ */
+@Component
+@RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-
     private final JwtService jwtService;
-    private final UserDetailsService userDetailsService;  // Para cargar UserDetails desde DB
-    private final UserRepository userRepository;  // Opcional: Si necesitas cargar User por ID
-
-    // Constructor injection
-    public JwtAuthenticationFilter(JwtService jwtService, UserDetailsService userDetailsService, UserRepository userRepository) {
-        this.jwtService = jwtService;
-        this.userDetailsService = userDetailsService;
-        this.userRepository = userRepository;
-    }
+    private final UserDetailsService userDetailsService;
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-            throws ServletException, IOException {
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+        try {
+            final String authHeader = request.getHeader("Authorization");
 
-        // 1. Extrae el token del header Authorization
-        final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String userEmail;
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            // No hay token: Continúa con el chain (para endpoints públicos)
-            filterChain.doFilter(request, response);
-            return;
-        }
+            final String jwt = authHeader.substring(7).trim();
 
-        jwt = authHeader.substring(7);  // Quita "Bearer "
-        userEmail = jwtService.extractUsername(jwt);  // Usa tu método
+            if (jwt.isEmpty()) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
-        // 2. Si ya hay autenticación en el contexto (e.g., de login), salta
-        if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            // 3. Valida el token usando tu JwtService
-            if (jwtService.validateToken(jwt)) {
-                // 4. Carga UserDetails desde DB (usa email como username)
-                UserDetails userDetails = userDetailsService.loadUserByUsername(userEmail);
+            // Validate token format first
+            try {
+                validateJwtFormat(jwt);
+                validateAlgorithm(jwt);
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid JWT format: " + e.getMessage());
+                sendErrorResponse(response, "Invalid token format");
+                return;
+            }
 
-                // Opcional: Verifica que el userId en token coincida con DB (extra seguridad)
-                Long tokenUserId = jwtService.extractUserId(jwt);
-                User userFromDb = userRepository.findById(tokenUserId).orElse(null);
-                if (userFromDb != null && !userFromDb.getEmail().equals(userEmail)) {
-                    // Token inválido (userId no coincide)
-                    filterChain.doFilter(request, response);
+            // Extract and validate user
+            String userEmail = jwtService.extractEmail(jwt);
+            if (userEmail == null) {
+                logger.error("Could not extract email from token");
+                sendErrorResponse(response, "Invalid token");
+                return;
+            }
+
+            // Check if user is already authenticated
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
+
+                if (jwtService.isTokenValid(jwt, userDetails)) {
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.getAuthorities()
+                    );
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                    logger.debug("✅ Authenticated user: " + userEmail);
+                } else {
+                    logger.warn("❌ Invalid token for user: " + userEmail);
+                    sendErrorResponse(response, "Invalid token");
                     return;
                 }
-
-                // 5. Crea Authentication con authorities (roles)
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
-
-                // 6. Set details de la request (IP, session, etc.)
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                // 7. Guarda en SecurityContext (ahora el usuario está "autenticado")
-                SecurityContextHolder.getContext().setAuthentication(authToken);
             }
+
+            filterChain.doFilter(request, response);
+
+        } catch (Exception e) {
+            logger.error("❌ Authentication error: " + e.getMessage(), e);
+            sendErrorResponse(response, "Authentication failed: " + e.getMessage());
+        }
+    }
+
+    private void sendErrorResponse(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.getWriter().write("{\"error\": \"Unauthorized\", \"message\": \"" + message + "\"}");
+    }
+
+
+    /**
+     * ✅ Limpia el token JWT de espacios en blanco
+     */
+    private String cleanJwtToken(String rawToken) {
+        if (rawToken == null) {
+            throw new IllegalArgumentException("Token cannot be null");
         }
 
-        // 8. Continúa con el chain (llega al controlador)
-        filterChain.doFilter(request, response);
+        String cleaned = rawToken.trim()
+                .replaceAll("\\s+", "")
+                .replaceAll("\\t", "")
+                .replaceAll("\\n", "")
+                .replaceAll("\\r", "");
+
+        logger.debug("Token cleaned - Original: " + rawToken.length() + ", Cleaned: " + cleaned.length());
+
+        return cleaned;
+    }
+
+    /**
+     * ✅ Valida el formato básico del token JWT
+     */
+    private void validateJwtFormat(String token) {
+        if (token == null || token.isEmpty()) {
+            throw new IllegalArgumentException("Token is empty or null");
+        }
+
+        String[] parts = token.split("\\.");
+        if (parts.length != 3) {
+            throw new IllegalArgumentException(
+                    "Invalid JWT format. Expected 3 parts, found: " + parts.length
+            );
+        }
+
+        try {
+            // Verificar que sea Base64 URL-safe válido
+            Base64.getUrlDecoder().decode(parts[0]);
+            Base64.getUrlDecoder().decode(parts[1]);
+            Base64.getUrlDecoder().decode(parts[2]);
+
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid Base64 encoding in JWT");
+        }
+    }
+
+    private void validateAlgorithm(String token) {
+        try {
+            String[] parts = token.split("\\.");
+            String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]));
+
+            // Verificar que el algoritmo sea HS256
+            if (!headerJson.contains("\"alg\":\"HS256\"")) {
+                logger.warn("JWT algorithm mismatch. Expected HS256, but header is: " + headerJson);
+                throw new IllegalArgumentException("JWT token must use HS256 algorithm");
+            }
+
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to validate JWT algorithm: " + e.getMessage());
+        }
+    }
+
+    private boolean isPublicEndpoint(String path) {
+        return path.startsWith("/api/auth/") ||
+                path.equals("/") ||
+                path.equals("/health") ||
+                path.equals("/actuator/health") ||
+                // ✅ SOLO estos son públicos
+                path.matches("/api/users/[^/]+$") ||
+                path.matches("/api/users/[^/]+/statistics.*");
     }
 }

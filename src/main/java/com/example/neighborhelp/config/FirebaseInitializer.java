@@ -16,8 +16,7 @@ public class FirebaseInitializer {
     @PostConstruct
     public void initialize() {
         try {
-            // Cargar desde classpath (src/main/resources)
-            InputStream serviceAccount = new ClassPathResource("neighborhelp-e7f2b-firebase-adminsdk-fbsvc-a91ee43094.json").getInputStream();
+            InputStream serviceAccount = new ClassPathResource("firebase-config.json").getInputStream();
 
             FirebaseOptions options = FirebaseOptions.builder()
                     .setCredentials(GoogleCredentials.fromStream(serviceAccount))

@@ -15,78 +15,72 @@ import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.InputStream;
 
-@Service
+/**
+ * Firebase Service for integrating with Firebase Authentication.
+ *
+ * This service provides functionality to manage user accounts in Firebase
+ * Authentication system, including user creation, email verification status
+ * management, and custom token generation for authentication.
+ */
+@Service  // Marks this class as a Spring Service component
 public class FirebaseService {
 
+    /**
+     * Path to Firebase Admin SDK configuration file.
+     */
     @Value("${firebase.config.path:C:\\Users\\bobby\\IdeaProjects\\NeighborHelp\\src\\main\\resources\\neighborhelp-e7f2b-firebase-adminsdk-fbsvc-a91ee43094.json}")
     private String firebaseConfigPath;
 
-    @PostConstruct
+    /**
+     * Initializes Firebase Admin SDK during application startup.
+     *
+     * This method is called automatically after dependency injection is complete.
+     * It loads the Firebase service account credentials and initializes the
+     * Firebase application instance if it hasn't been initialized already.
+     *
+     * @throws RuntimeException if Firebase initialization fails
+     */
+    @PostConstruct  // Executed after dependency injection is complete
     public void initialize() {
         try {
+            // Check if Firebase is already initialized to avoid duplicate initialization
             if (FirebaseApp.getApps().isEmpty()) {
+                // Load Firebase service account credentials from classpath
                 InputStream serviceAccount = new ClassPathResource(firebaseConfigPath).getInputStream();
 
+                // Configure Firebase options with credentials
                 FirebaseOptions options = FirebaseOptions.builder()
                         .setCredentials(GoogleCredentials.fromStream(serviceAccount))
                         .build();
 
-
-
+                // Initialize the Firebase application
                 FirebaseApp.initializeApp(options);
+
+                System.out.println("✅ Firebase Admin SDK initialized successfully");
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to initialize Firebase", e);
         }
     }
 
-    /**
-     * Crear usuario en Firebase y enviar email de verificación automáticamente
-     */
-    public UserRecord createFirebaseUser(String email, String password) throws FirebaseAuthException {
-        CreateRequest request = new CreateRequest()
-                .setEmail(email)
-                .setPassword(password)
-                .setEmailVerified(false); // Firebase enviará email de verificación
-
-        UserRecord userRecord = FirebaseAuth.getInstance().createUser(request);
-
-        // Firebase automáticamente enviará el email de verificación
-        // cuando el usuario intente hacer login por primera vez
-
-        return userRecord;
-    }
-
-    public void updateUserEmailVerified(String uid, boolean verified) throws FirebaseAuthException {
-        UserRecord.UpdateRequest request = new UserRecord.UpdateRequest(uid)
-                .setEmailVerified(verified);
-        FirebaseAuth.getInstance().updateUser (request);
-        System.out.println("Firebase user " + uid + " email verified set to " + verified);
-    }
 
     /**
-     * Verificar si el usuario existe y está verificado
-     */
-    public UserRecord getFirebaseUser(String email) throws FirebaseAuthException {
-        return FirebaseAuth.getInstance().getUserByEmail(email);
-    }
-
-    /**
-     * Generar custom token para testing (simula el login de Firebase)
+     * Generates a custom token for Firebase authentication.
+     *
+     * Custom tokens allow you to authenticate users with your own authentication
+     * system while still using Firebase for the actual authentication process.
+     *
+     * @param firebaseUid the Firebase user ID
+     * @return a signed custom token that can be used for Firebase authentication
+     * @throws FirebaseAuthException if token generation fails
+     *
+     * Usage:
+     * - Frontend receives this token and signs in with signInWithCustomToken()
+     * - Useful for testing or integrating with existing auth systems
      */
     public String createCustomToken(String firebaseUid) throws FirebaseAuthException {
         return FirebaseAuth.getInstance().createCustomToken(firebaseUid);
     }
 
-    /**
-     * Verificar si el email está verificado
-     */
-    public boolean isEmailVerified(String email) {
-        try {
-            UserRecord userRecord = FirebaseAuth.getInstance().getUserByEmail(email);
-            return userRecord.isEmailVerified();
-        } catch (FirebaseAuthException e) {
-            return false;
-        }
-    }
+
 }

@@ -1,30 +1,23 @@
 package com.example.neighborhelp.dto;
 
+import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class ResetPasswordRequest {
-    @NotBlank(message = "Reset token is required")
-    private String token;
+
+    @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
+    private String email;
 
     @NotBlank(message = "New password is required")
-    @Size(min = 6, max = 40, message = "Password must be between 6 and 40 characters")
+    @Size(min = 8, message = "Password must be at least 8 characters long")
     private String newPassword;
-
-    @NotBlank(message = "Please confirm your password")
-    private String confirmPassword;
-
-    public @NotBlank(message = "Reset token is required") String getToken() {
-        return token;
-    }
-
-    public @NotBlank(message = "New password is required") @Size(min = 6, max = 40, message = "Password must be between 6 and 40 characters") String getNewPassword() {
-        return newPassword;
-    }
-
-    public @NotBlank(message = "Please confirm your password") String getConfirmPassword() {
-        return confirmPassword;
-    }
 }

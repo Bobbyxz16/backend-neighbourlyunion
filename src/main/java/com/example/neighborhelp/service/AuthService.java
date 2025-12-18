@@ -1,153 +1,157 @@
 package com.example.neighborhelp.service;
 
 import com.example.neighborhelp.dto.LoginRequest;
-import com.example.neighborhelp.dto.UpdatedRegisterRequest;
-import com.example.neighborhelp.dto.UserResponse;
-import com.example.neighborhelp.entity.PasswordResetToken;
-import com.example.neighborhelp.entity.User;
+import com.example.neighborhelp.dto.RegisterRequest;
+import com.example.neighborhelp.dto.UserResponseRequest;
 import com.example.neighborhelp.entity.RefreshToken;
+import com.example.neighborhelp.entity.User;
+import com.example.neighborhelp.entity.UserProfile;
+import com.example.neighborhelp.entity.VerificationCode;
 import com.example.neighborhelp.exception.InvalidTokenException;
 import com.example.neighborhelp.exception.ResourceNotFoundException;
-import com.example.neighborhelp.repository.UserRepository;
 import com.example.neighborhelp.repository.RefreshTokenRepository;
-import com.example.neighborhelp.repository.PasswordResetTokenRepository;
-import com.example.neighborhelp.security.EmailService;
-import com.example.neighborhelp.service.FirebaseService;
+import com.example.neighborhelp.repository.UserRepository;
 import com.example.neighborhelp.security.JwtService;
-import com.example.neighborhelp.security.TokenResponse;
-import com.google.cloud.firestore.Firestore;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthException;
-import com.google.firebase.auth.UserRecord;
-import com.google.firebase.cloud.FirestoreClient;
+import com.example.neighborhelp.dto.TokenResponseRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Authentication Service handling user registration, login, token management,
+ * and password reset operations.
+ */
 @Service
+@RequiredArgsConstructor
 public class AuthService {
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final PasswordResetTokenRepository passwordResetTokenRepository;
-    private final EmailService emailService;
-    private final FirebaseService firebaseService;
+    private final VerificationService verificationService;
+    private final UserService userService;
 
-    public AuthService(UserRepository userRepository,PasswordEncoder passwordEncoder,
-                       JwtService jwtService, AuthenticationManager authenticationManager,
-                       RefreshTokenRepository refreshTokenRepository,
-                       PasswordResetTokenRepository passwordResetTokenRepository, EmailService emailService,
-                       FirebaseService firebaseService) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
-        this.authenticationManager = authenticationManager;
-        this.refreshTokenRepository = refreshTokenRepository;
-        this.passwordResetTokenRepository = passwordResetTokenRepository;
-        this.emailService = emailService;
-        this.firebaseService = firebaseService;
-    }
-
+    /**
+     * Registers a new user and sends verification code via email.
+     */
     @Transactional
-    public UserResponse register(UpdatedRegisterRequest request) throws FirebaseAuthException {
+    public UserResponseRequest register(RegisterRequest request) {
+        // 1. VALIDATION CHECKS
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new ResourceNotFoundException("Email Already Exists");
+            throw new IllegalStateException("Email already exists");
         }
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new ResourceNotFoundException("Username Already Exists");
-        }
-        if (request.getType() == User.UserType.ORGANIZATION &&
-                (request.getOrganizationName() == null || request.getOrganizationName().trim().isEmpty())) {
-            throw new ResourceNotFoundException("Organizations must have an organization name");
+            throw new IllegalStateException("Username already exists");
         }
 
-        // 1. Crear usuario en Firebase
-        UserRecord firebaseUser ;
-        try {
-            firebaseUser  = firebaseService.createFirebaseUser(request.getEmail(), request.getPassword());
-        } catch (Exception e) {
-            throw new RuntimeException("Firebase user creation failed: " + e.getMessage());
+        // Type-specific validations
+        if (request.getType() == User.UserType.ORGANIZATION) {
+            if (request.getOrganizationName() == null || request.getOrganizationName().trim().isEmpty()) {
+                throw new IllegalStateException("Organizations must have an organization name");
+            }
+            if (userRepository.existsByOrganizationName(request.getOrganizationName())) {
+                throw new IllegalStateException("Organization name already exists");
+            }
+        } else if (request.getType() == User.UserType.INDIVIDUAL) {
+            if (request.getFirstName() == null || request.getFirstName().trim().isEmpty()) {
+                throw new IllegalStateException("First name is required for individual users");
+            }
+            if (request.getLastName() == null || request.getLastName().trim().isEmpty()) {
+                throw new IllegalStateException("Last name is required for individual users");
+            }
         }
 
-        // 2. Generar link de verificación Firebase con retry
-        String verificationLink = FirebaseAuth.getInstance().generateEmailVerificationLink(firebaseUser.getEmail());
-
-        // 3. Guardar usuario local sin password (o con password cifrada si quieres)
+        // 2. USER CREATION
         User user = new User();
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
-        user.setFirebaseUid(firebaseUser.getUid());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
         user.setType(request.getType());
-        user.setOrganizationName(request.getOrganizationName());
-        user.setDescription(request.getDescription());
-        user.setWebsite(request.getWebsite());
         user.setVerified(false);
-        user.setEnabled(false);
-        User savedUser  = userRepository.save(user);
+        user.setEnabled(true);
+        user.setAuthProvider("LOCAL");
 
-        // 4. Enviar email de verificación agregando documento en Firestore para trigger
-        if (verificationLink != null) {
-            Firestore db = FirestoreClient.getFirestore();
-            Map<String, Object> emailDoc = new HashMap<>();
-            emailDoc.put("to", request.getEmail());
-            emailDoc.put("subject", "Verify your NeighborHelp account");
-            emailDoc.put("html", emailService.buildVerificationEmailHtml(verificationLink));
-            emailDoc.put("from", "hello@neighborlyunion.com");
-            emailDoc.put("status", "pending");
-            db.collection("emails").add(emailDoc);
+        // Set type-specific fields
+        if (request.getType() == User.UserType.ORGANIZATION) {
+            user.setOrganizationName(request.getOrganizationName());
+        } else {
+            user.setFirstName(request.getFirstName());
+            user.setLastName(request.getLastName());
         }
 
-        return mapToUserResponse(savedUser);
+        // 3. BUILD AND SET PROFILE
+        if (request.getProfile() != null) {
+            UserProfile profile = buildUserProfile(request.getProfile());
+            user.setProfile(profile);
+        }
+
+        User savedUser = userRepository.save(user);
+
+        // 4. SEND VERIFICATION CODE
+        verificationService.createAndSendVerificationCode(
+                savedUser,
+                VerificationCode.VerificationType.EMAIL_VERIFICATION
+        );
+
+        // 5. RETURN USER RESPONSE
+        return userService.mapToUserResponse(savedUser);
     }
 
-
-    private String generateVerificationToken(User user) {
-        // You can use UUID or any other method to generate a unique token
-        return UUID.randomUUID().toString();
+    /**
+     * Helper method to build UserProfile from ProfileData
+     */
+    private UserProfile buildUserProfile(RegisterRequest.ProfileData profileData) {
+        return UserProfile.builder()
+                .phone(profileData.getPhone())
+                .bio(profileData.getBio())
+                .avatar(profileData.getAvatar())
+                .description(profileData.getDescription())
+                .website(profileData.getWebsite())
+                .address(profileData.getAddress())
+                .logo(profileData.getLogo())
+                .socialMedia(profileData.getSocialMedia())
+                .yearsExperience(profileData.getYearsExperience())
+                .skills(profileData.getSkills())
+                .languages(profileData.getLanguages())
+                .availability(profileData.getAvailability())
+                .build();
     }
 
-    public TokenResponse login(LoginRequest request) {
+    /**
+     * Authenticates user and returns JWT tokens.
+     */
+    public TokenResponseRequest login(LoginRequest request) {
+        // 1. FIND USER AND CHECK VERIFICATION STATUS
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid email or password"));
+
+        // 2. VERIFY EMAIL IS CONFIRMED
+        if (!user.getVerified()) {
+            throw new DisabledException("Email not verified. Please check your email for the verification code.");
+        }
+
+        // 3. AUTHENTICATE WITH SPRING SECURITY
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
 
-        User user = (User ) authentication.getPrincipal();
-
-        // Consultar Firebase para verificar emailVerified
-        UserRecord firebaseUser ;
-        try {
-            firebaseUser  = firebaseService.getFirebaseUser (request.getEmail());
-        } catch (FirebaseAuthException e) {
-            throw new RuntimeException("Firebase user not found: " + e.getMessage());
-        }
-
-        if (!firebaseUser .isEmailVerified()) {
-            throw new RuntimeException("Email not verified. Please check your email for verification.");
-        }
-
-        // Sincronizar estado local si es necesario
-        if (!user.getVerified()) {
-            user.setVerified(true);
-            user.setEnabled(true);
-            userRepository.save(user);
-        }
-
+        // 4. GENERATE TOKENS
         String accessToken = jwtService.generateToken(user);
         RefreshToken refreshToken = createRefreshToken(user.getId());
 
-        return TokenResponse.builder()
+        // 5. RETURN TOKEN RESPONSE
+        return TokenResponseRequest.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken.getToken())
                 .tokenType("Bearer")
@@ -155,29 +159,38 @@ public class AuthService {
                 .build();
     }
 
-
-
-    private RefreshToken createRefreshToken(Long userId){
+    /**
+     * Creates a new refresh token for a user.
+     */
+    private RefreshToken createRefreshToken(Long userId) {
         RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setUser(userRepository.findById(userId).get());
+        refreshToken.setUser(userRepository.findById(userId).orElseThrow());
         refreshToken.setToken(UUID.randomUUID().toString());
         refreshToken.setExpiryDate(LocalDateTime.now().plusDays(7));
         return refreshTokenRepository.save(refreshToken);
     }
 
+    /**
+     * Refreshes an expired access token using a valid refresh token.
+     */
     @Transactional
-    public TokenResponse refreshToken(String token) throws InvalidTokenException {
+    public TokenResponseRequest refreshToken(String token) throws InvalidTokenException {
+        // 1. FIND AND VALIDATE REFRESH TOKEN
         RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
                 .orElseThrow(() -> new InvalidTokenException("Refresh token not found"));
+
+        // 2. CHECK EXPIRATION
         if (refreshToken.getExpiryDate().isBefore(LocalDateTime.now())) {
             refreshTokenRepository.delete(refreshToken);
             throw new InvalidTokenException("Refresh token expired. Please log in again");
         }
 
+        // 3. GENERATE NEW ACCESS TOKEN
         User user = refreshToken.getUser();
         String accessToken = jwtService.generateToken(user);
 
-        return TokenResponse.builder()
+        // 4. RETURN NEW TOKENS
+        return TokenResponseRequest.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken.getToken())
                 .tokenType("Bearer")
@@ -185,50 +198,15 @@ public class AuthService {
                 .build();
     }
 
-    public void initiatePasswordReset(String email) throws IOException {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(()-> new ResourceNotFoundException("User not found with email: " + email));
-        String token = UUID.randomUUID().toString();
-
-        PasswordResetToken passwordResetToken = new PasswordResetToken();
-        passwordResetToken.setToken(token);
-        passwordResetToken.setUser(user);
-        passwordResetToken.setExpiryDate(LocalDateTime.now().plusHours(1));
-
-        passwordResetTokenRepository.save(passwordResetToken);
-
-       // String resetUrl = "https://neighbothelp.com/reset-password?token= " + token;
-       // emailService.sendPasswordResetEmail(user.getEmail(), resetUrl);
-    }
-
+    /**
+     * Resets user password after code verification.
+     */
     @Transactional
-    public void resetPassword(String token, String newPassword) throws InvalidTokenException {
-        PasswordResetToken resetToken = passwordResetTokenRepository.findByToken(token)
-                .orElseThrow(() -> new InvalidTokenException("Invalid token"));
-        if (resetToken.getExpiryDate().isBefore(LocalDateTime.now())){
-            passwordResetTokenRepository.delete(resetToken);
-        }
+    public void resetPasswordWithCode(String email, String newPassword) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        User user = resetToken.getUser();
-        user.setPassword((newPassword));
+        user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-
-        passwordResetTokenRepository.delete(resetToken);
-    }
-
-    private UserResponse mapToUserResponse(User user) {
-        return new UserResponse.Builder()
-                .id(user.getId())
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .role(user.getRole())
-                .type(user.getType())
-                .organizationName((user.getOrganizationName()))
-                .description(user.getDescription())
-                .website(user.getWebsite())
-                .verified(user.getVerified())
-                .enabled(user.getEnabled())
-                .createdAt(user.getCreatedAt())
-                .build();
     }
 }
