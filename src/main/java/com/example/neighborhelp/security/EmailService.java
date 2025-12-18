@@ -22,7 +22,7 @@ public class EmailService {
     /**
      * Resend.com API key injected from application properties
      */
-    @Value("${resend.api.key}")  // Injects API key from application.properties/yml
+    @Value("${RESEND_API_KEY}")  // Injects API key from application.properties/yml
     private String apiKey;
 
     /**
