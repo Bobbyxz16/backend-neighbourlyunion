@@ -6,9 +6,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class HealthController {
 
-    @GetMapping("/health")
+    // Responde a AMBAS rutas
+    @GetMapping(value = {"/actuator/health", "/health"})
     public String health() {
-        return "OK";
+        return "{\"status\":\"UP\"}";  // Formato JSON que esperan muchos healthchecks
     }
 
     @GetMapping("/")
