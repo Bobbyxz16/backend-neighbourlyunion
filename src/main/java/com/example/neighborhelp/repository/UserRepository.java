@@ -53,8 +53,6 @@ public interface UserRepository extends JpaRepository<User, Long> , JpaSpecifica
      * Find user by Firebase UID
      * Used for Firebase authentication
      */
-    Optional<User> findByFirebaseUid(String firebaseUid);
-
     /**
      * Check if email exists
      * Used for registration validation
@@ -77,7 +75,6 @@ public interface UserRepository extends JpaRepository<User, Long> , JpaSpecifica
      * Check if Firebase UID exists
      * Used for Firebase authentication
      */
-    boolean existsByFirebaseUid(String firebaseUid);
 
     /**
      * Find all enabled users with role USER (excluding ADMIN and MODERATOR)

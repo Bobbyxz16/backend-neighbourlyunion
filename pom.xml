@@ -109,13 +109,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Firebase Integration -->
-        <dependency>
-            <groupId>com.google.firebase</groupId>
-            <artifactId>firebase-admin</artifactId>
-            <version>${firebase-admin.version}</version>
-        </dependency>
-
         <!-- Email Service -->
         <dependency>
             <groupId>com.sendgrid</groupId>

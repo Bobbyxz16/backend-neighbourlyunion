@@ -47,9 +47,6 @@ public class User {
     @Column(nullable = true)
     private String password;
 
-    @Column(unique = true, name = "firebase_uid")
-    private String firebaseUid;
-
     @Column(name = "auth_provider")
     private String authProvider = "LOCAL";
 
@@ -145,9 +142,7 @@ public class User {
         verificationCode.setUser(this);
     }
 
-    public boolean isFirebaseUser() {
-        return "FIREBASE".equals(authProvider) && firebaseUid != null;
-    }
+
 
     public boolean isLocalUser() {
         return "LOCAL".equals(authProvider) && password != null;
@@ -194,7 +189,6 @@ public class User {
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public String getVerificationToken() { return verificationToken; }
     public List<VerificationCode> getVerificationCodes() { return verificationCodes; }
-    public String getFirebaseUid() { return firebaseUid; }
     public String getAuthProvider() { return authProvider; }
     public List<RefreshToken> getRefreshTokens() { return refreshTokens; }
     public Boolean getDeleted() { return deleted; }
@@ -229,7 +223,6 @@ public void setPassword(String password) {
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
     public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
     public void setVerificationCodes(List<VerificationCode> verificationCodes) { this.verificationCodes = verificationCodes; }
-    public void setFirebaseUid(String firebaseUid) { this.firebaseUid = firebaseUid; }
     public void setAuthProvider(String authProvider) { this.authProvider = authProvider; }
     public void setRefreshTokens(List<RefreshToken> refreshTokens) { this.refreshTokens = refreshTokens; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
