@@ -1,30 +1,32 @@
-# Build stage
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 COPY pom.xml .
-COPY src src
+COPY src ./src
 RUN mvn clean package -DskipTests
 
-# Run stage
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-# Crear directorios necesarios
-RUN mkdir -p /app/uploads /app/logs
+# Instala curl para debugging
+RUN apk add --no-cache curl
 
-# Copiar el JAR
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=builder /app/target/*.jar app.jar
 
-# Exponer puerto
+# Crear script de inicio con logging
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'echo "=== Starting Spring Boot Application ==="' >> /app/start.sh && \
+    echo 'echo "Java version: $(java -version 2>&1 | head -1)"' >> /app/start.sh && \
+    echo 'echo "PORT env variable: $PORT"' >> /app/start.sh && \
+    echo 'echo "Waiting for app to start..."' >> /app/start.sh && \
+    echo 'java -jar /app/app.jar &' >> /app/start.sh && \
+    echo 'sleep 10' >> /app/start.sh && \
+    echo 'echo "Checking if app is running..."' >> /app/start.sh && \
+    echo 'curl -f http://localhost:$PORT/health || echo "Health check failed"' >> /app/start.sh && \
+    echo 'wait' >> /app/start.sh
+
+RUN chmod +x /app/start.sh
+
 EXPOSE 8080
 
-# Usuario no-root para seguridad
-RUN addgroup -S spring && adduser -S spring -G spring
-USER spring:spring
-
-# Variables de entorno por defecto
-ENV SPRING_PROFILES_ACTIVE=docker,dev
-ENV JAVA_OPTS="-Xmx512m -Xms256m"
-
-# Comando de inicio
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
+# Usa el script en lugar de CMD directo
+CMD ["/app/start.sh"]
