@@ -28,13 +28,6 @@ public class RefreshTokenService {
     private final UserRepository userRepository;
 
     /**
-     * Refresh token expiration time in days, configurable via application properties.
-     * Default: 7 days if not specified in configuration.
-     */
-    @Value("${app.jwt.refresh-token.expiry-days:7}")
-    private int refreshTokenExpiryDays;
-
-    /**
      * Constructor for dependency injection.
      */
     public RefreshTokenService(RefreshTokenRepository refreshTokenRepository,
@@ -62,6 +55,11 @@ public class RefreshTokenService {
                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
         // Calculate expiration date
+        /**
+         * Refresh token expiration time in days, configurable via application properties.
+         * Default: 7 days if not specified in configuration.
+         */
+        int refreshTokenExpiryDays = 7;
         LocalDateTime expiryDate = LocalDateTime.now().plusDays(refreshTokenExpiryDays);
 
         // Create and configure refresh token entity
