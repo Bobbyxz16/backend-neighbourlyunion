@@ -9,6 +9,9 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+# Crear directorios necesarios
+RUN mkdir -p /app/uploads /app/logs
+
 # Copiar el JAR
 COPY --from=build /app/target/*.jar app.jar
 
@@ -19,5 +22,9 @@ EXPOSE 8080
 RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 
+# Variables de entorno por defecto
+ENV SPRING_PROFILES_ACTIVE=docker,dev
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+
 # Comando de inicio
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
