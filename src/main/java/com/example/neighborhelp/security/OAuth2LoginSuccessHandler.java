@@ -29,7 +29,7 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     @Autowired
     private UserDetailsService userDetailsService;
 
-    @Value("${app.oauth.frontend-url:https://neighbourlyunion.com}")
+    @Value("${app.oauth.frontend-url:https://neighborlyunion.com}")
     private String frontendUrl;
 
     @Override

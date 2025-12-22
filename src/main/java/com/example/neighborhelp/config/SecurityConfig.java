@@ -182,7 +182,7 @@ public class SecurityConfig {
                 "http://localhost:5500",
                 "https://neighborlyunion.com",
                 "https://www.neighborlyunion.com",
-                "https://api.neighbourlyunion.com"
+                "https://api.neighborlyunion.com"
         ));
 
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));

@@ -72,12 +72,12 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
 
-      APP_OAUTH_FRONTEND_URL: https://neighbourlyunion.com
+      APP_OAUTH_FRONTEND_URL: https://neighborlyunion.com
       APP_OAUTH_REDIRECT_URI: ${APP_OAUTH_REDIRECT_URI}
 
       # EMAIL/RESEND (USAR VARIABLE!)
       RESEND_API_KEY: ${RESEND_API_KEY}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-no-reply@neighbourlyunion.com}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-no-reply@neighborlyunion.com}
 
 
 
